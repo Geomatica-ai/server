@@ -548,7 +548,11 @@ def prepare_download_response(project_dir: str, path: str) -> Response:
             os.path.dirname(abs_path), os.path.basename(abs_path)
         )
 
-    mime_type = "text/plain" if not is_binary(abs_path) else get_mimetype(abs_path)
+    try:
+        file_is_binary = is_binary(abs_path)
+    except Exception:
+        file_is_binary = True
+    mime_type = "text/plain" if not file_is_binary else get_mimetype(abs_path)
     resp.headers["Content-Type"] = mime_type
     file_name = quote(os.path.basename(path).encode("utf-8"))
     resp.headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{file_name}"

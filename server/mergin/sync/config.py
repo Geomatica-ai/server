@@ -84,3 +84,9 @@ class Configuration(object):
     UPLOAD_FILES_WHITELIST = config("UPLOAD_FILES_WHITELIST", default="", cast=Csv())
     # max batch size for fetch projects in batch endpoint
     MAX_BATCH_SIZE = config("MAX_BATCH_SIZE", default=100, cast=int)
+    # Maximum number of versions to retain per project (0 = unlimited)
+    MAX_PROJECT_VERSIONS = config("MAX_PROJECT_VERSIONS", default=0, cast=int)
+    # S3 archiving for old versions (optional — all must be set for archiving to be active)
+    S3_ARCHIVE_BUCKET = config("S3_ARCHIVE_BUCKET", default="")
+    S3_ARCHIVE_KEY_PREFIX = config("S3_ARCHIVE_KEY_PREFIX", default="version_archives")
+    S3_ARCHIVE_REGION = config("S3_ARCHIVE_REGION", default="")

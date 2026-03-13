@@ -44,6 +44,8 @@ python-magic = "==0.4.27"
 click = "==8.2.0"
 # requirements for development on windows
 colorama = "==0.4.5"
+# S3 archiving for old project versions (optional)
+boto3 = ">=1.26"
 
 [dev-packages]
 pytest = "==8.3.2"

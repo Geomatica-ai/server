@@ -343,6 +343,129 @@ class Project(db.Model):
         db.session.commit()
         project_deleted.send(self)
 
+    def delete_version(self, version_name: int) -> None:
+        """Delete a single project version, archiving files to S3 first if configured.
+
+        Steps:
+        1. Safety check: refuse to delete the latest version
+        2. Collect FileHistory locations for physical files in this version
+        3. Archive files to S3 (best-effort, if S3_ARCHIVE_BUCKET is configured)
+        4. Move the version directory (v{N}/) to temp via move_to_tmp()
+        5. Delete ProjectVersionDelta records explicitly (no FK cascade to ProjectVersion)
+        6. Delete the ProjectVersion record (cascades FileHistory and FileDiff)
+
+        Args:
+            version_name: Integer version number to delete (e.g. 3)
+
+        Raises:
+            ValueError: If version_name equals latest_version.
+        """
+        from .storages.s3_archive import S3ArchiveClient
+        from .storages.disk import move_to_tmp
+
+        if version_name == self.latest_version:
+            raise ValueError(
+                f"Cannot delete latest version {version_name} of project {self.id}"
+            )
+
+        pv = ProjectVersion.query.filter_by(project_id=self.id, name=version_name).first()
+        if not pv:
+            logging.warning(
+                "delete_version: version %s not found for project %s, skipping",
+                version_name,
+                self.id,
+            )
+            return
+
+        # Collect relative paths of physical files (skip 'delete' changes — no file on disk)
+        file_locations = [
+            fh.location
+            for fh in pv.changes
+            if fh.location and fh.change != "delete"
+        ]
+
+        # Archive to S3 (best-effort — failure does not block local deletion)
+        s3_client = S3ArchiveClient.from_app_config(current_app.config)
+        if s3_client:
+            archived = s3_client.archive_version(
+                project_id=str(self.id),
+                project_dir=self.storage.project_dir,
+                version_number=version_name,
+                file_locations=file_locations,
+            )
+            if not archived:
+                logging.warning(
+                    "S3 archiving incomplete for project %s version %s — proceeding with local deletion",
+                    self.id,
+                    version_name,
+                )
+
+        # Move version directory to temp for deferred cleanup
+        version_dir = os.path.join(
+            self.storage.project_dir, ProjectVersion.to_v_name(version_name)
+        )
+        move_to_tmp(version_dir)
+
+        # Explicitly delete ProjectVersionDelta (no FK cascade to ProjectVersion)
+        delta_table = ProjectVersionDelta.__table__
+        db.session.execute(
+            delta_table.delete().where(
+                (delta_table.c.project_id == self.id)
+                & (delta_table.c.version == version_name)
+            )
+        )
+
+        # Delete ProjectVersion — cascades FileHistory (and FileDiff via basefile_id FK)
+        db.session.delete(pv)
+        db.session.flush()
+
+    def enforce_version_limit(self) -> None:
+        """Delete oldest versions that exceed MAX_PROJECT_VERSIONS.
+
+        No-op when MAX_PROJECT_VERSIONS == 0 (unlimited).
+        Always protects the latest version.
+        Commits after all deletions.
+        """
+        max_versions = current_app.config.get("MAX_PROJECT_VERSIONS", 0)
+        if max_versions <= 0:
+            return
+
+        total = ProjectVersion.query.filter_by(project_id=self.id).count()
+        excess = total - max_versions
+        if excess <= 0:
+            return
+
+        victims = (
+            ProjectVersion.query.filter_by(project_id=self.id)
+            .filter(ProjectVersion.name != self.latest_version)
+            .order_by(ProjectVersion.name.asc())
+            .limit(excess)
+            .all()
+        )
+
+        for pv in victims:
+            try:
+                self.delete_version(pv.name)
+            except Exception:
+                logging.exception(
+                    "Failed to delete version %s for project %s during version limit enforcement",
+                    pv.name,
+                    self.id,
+                )
+                db.session.rollback()
+                continue
+
+        # Rebuild LatestProjectFiles cache so deleted FileHistory IDs don't leave null paths
+        self.cache_latest_files()
+
+        try:
+            db.session.commit()
+        except Exception:
+            logging.exception(
+                "Failed to commit version limit cleanup for project %s", self.id
+            )
+            db.session.rollback()
+
     def _member(self, user_id: int) -> Optional[ProjectUser]:
         """Return association object for user_id"""
         return next((u for u in self.project_users if u.user_id == user_id), None)

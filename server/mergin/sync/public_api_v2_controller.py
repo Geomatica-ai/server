@@ -356,6 +356,14 @@ def create_project_version(id):
             )
             project_version_created.send(pv)
             push_finished.send(pv)
+
+            # Enforce version retention limit (no-op if MAX_PROJECT_VERSIONS == 0)
+            try:
+                project.enforce_version_limit()
+            except Exception:
+                logging.exception(
+                    f"Version limit enforcement failed for project {project.id} after version {v_next_version}"
+                )
     except (
         psycopg2.Error,
         OSError,

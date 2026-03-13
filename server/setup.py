@@ -43,4 +43,7 @@ setup(
         "shapely",
         "psycogreen",
     ],
+    extras_require={
+        "s3": ["boto3>=1.26"],
+    },
 )
