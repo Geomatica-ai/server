@@ -415,6 +415,42 @@ class Project(db.Model):
             )
         )
 
+        # Before deleting, promote successor FileHistory records so that
+        # get_basefile() keeps working after the version is gone.
+        # When this version contains a basefile (change=create/update) for a
+        # versioned file (.gpkg), the next FileHistory for that file would be
+        # an update_diff that depends on it.  Promote that successor to
+        # change=update so it becomes the new basefile.
+        basefile_changes = [
+            fh
+            for fh in pv.changes
+            if fh.change in (PushChangeType.CREATE.value, PushChangeType.UPDATE.value)
+            and is_versioned_file(fh.path)
+        ]
+        for fh in basefile_changes:
+            successor = (
+                FileHistory.query.filter_by(file_path_id=fh.file_path_id)
+                .filter(
+                    FileHistory.project_version_name > version_name,
+                    FileHistory.change == PushChangeType.UPDATE_DIFF.value,
+                )
+                .order_by(FileHistory.project_version_name.asc())
+                .first()
+            )
+            if successor:
+                successor.change = PushChangeType.UPDATE.value
+                # Remove the FileDiff of the promoted successor (it no longer needs a diff)
+                FileDiff.query.filter_by(
+                    basefile_id=fh.id,
+                    version=successor.project_version_name,
+                ).delete()
+                # Re-point remaining FileDiffs that referenced the old basefile
+                # to the promoted successor so they survive the cascade delete
+                FileDiff.query.filter_by(basefile_id=fh.id).update(
+                    {"basefile_id": successor.id}
+                )
+                db.session.flush()
+
         # Delete ProjectVersion — cascades FileHistory (and FileDiff via basefile_id FK)
         db.session.delete(pv)
         db.session.flush()

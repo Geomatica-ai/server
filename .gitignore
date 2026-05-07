@@ -36,3 +36,4 @@ docker-compose.local.yml
 # SSO
 *.pem
 *.crt
+deployment/community/.env

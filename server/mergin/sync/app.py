@@ -7,7 +7,7 @@ from flask import Flask
 from .commands import add_commands
 from .config import Configuration
 from .db_events import register_events
-
+from .webhooks import register_webhooks
 
 def register(app: Flask):
     """Register mergin sync module in Flask app
@@ -40,3 +40,4 @@ def register(app: Flask):
 
     add_commands(app)
     register_events()
+    register_webhooks()
