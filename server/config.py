@@ -47,7 +47,7 @@ max_requests = 20000
 
 max_requests_jitter = 5000
 
-timeout = 30
+timeout = 300
 
 preload_app = False
 
