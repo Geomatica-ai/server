@@ -52,7 +52,6 @@ services:
     restart: unless-stopped
     env_file:
       - .prod.env
-      - ../common/telemetry/.otel.env
     environment:
       - GEVENT_WORKER=0
       - NO_MONKEY_PATCH=1
@@ -71,7 +70,6 @@ services:
     user: 901:999
     env_file:
       - .prod.env
-      - ../common/telemetry/.otel.env
     environment:
       - GEVENT_WORKER=0
       - NO_MONKEY_PATCH=1
